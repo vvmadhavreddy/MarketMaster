@@ -1,11 +1,25 @@
+using Npgsql;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// CORS for React dev server
+const string DevCors = "DevCors";
+builder.Services.AddCors(o =>
+{
+    o.AddPolicy(DevCors, p =>
+        p.WithOrigins("http://localhost:5173").AllowAnyHeader().AllowAnyMethod());
+});
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Note: Module registration has to be done here
+
 var app = builder.Build();
+
+app.UseCors(DevCors);
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -14,31 +28,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/api/hello", () => Results.Ok(new { message = "Hello from MarketMaster API" }));
 
-var summaries = new[]
+app.MapGet("/api/db-ping", async (IConfiguration cfg) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    await using var conn = new NpgsqlConnection(cfg.GetConnectionString("Postgres"));
+    await conn.OpenAsync();
+    await using var cmd = new NpgsqlCommand("select 1", conn);
+    var x = await cmd.ExecuteScalarAsync();
+    return Results.Ok(new { db = "ok", result = x });
+});
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+
